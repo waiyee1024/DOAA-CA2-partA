@@ -4,6 +4,11 @@ import numpy as np
 import io
 import os
 import tensorflow as tf
+import time
+
+
+TOP_K = 3
+
 
 app = Flask(__name__)
 
@@ -19,6 +24,16 @@ MODEL_INPUT_SIZE = {
     "m1": 23,
     "m2": 101,
 }
+
+MODEL_INFO = {
+    "m1": {
+        "description": "Lightweight model (23x23) optimized for faster inference"
+    },
+    "m2": {
+        "description": "Higher-resolution model (101x101) optimized for higher confidence predictions"
+    }
+}
+
 
 # ====== 可选：你的类别名字（如果没有就先用 class_0, class_1...）======
 CLASS_NAMES = None
@@ -46,7 +61,18 @@ def preprocess_image(file_bytes: bytes, target_size: int):
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "models": list(models.keys())})
+    return jsonify({
+        "status": "ok",
+        "models_loaded": list(models.keys()),
+        "model_details": {
+            k: {
+                "input_size": MODEL_INPUT_SIZE[k],
+                "description": MODEL_INFO[k]["description"]
+            }
+            for k in models
+        }
+    })
+
 
 @app.route("/predict", methods=["POST"])
 def predict():
@@ -66,10 +92,24 @@ def predict():
     x = preprocess_image(file_bytes, target_size)
 
     # 推理
-    y = models[model_name].predict(x)
+    start = time.time()
+    y = models[model_name].predict(x, verbose=0)
+    latency_ms = round((time.time() - start) * 1000, 2)
+
     y = np.array(y).squeeze()  # (num_classes,)
 
     pred_idx = int(np.argmax(y))
+    top_k_indices = y.argsort()[-TOP_K:][::-1]
+    top_k = [
+        {
+            "class": int(i),
+            "label": CLASS_NAMES[i] if CLASS_NAMES else f"class_{i}",
+            "probability": float(y[i])
+        }
+        for i in top_k_indices
+    ]
+
+
     confidence = float(np.max(y))
 
     if CLASS_NAMES and pred_idx < len(CLASS_NAMES):
@@ -79,12 +119,21 @@ def predict():
 
     return jsonify({
         "model_used": model_name,
+        "model_description": MODEL_INFO[model_name]["description"],
         "input_size": target_size,
+        "num_classes": len(y),
         "pred_index": pred_idx,
         "pred_label": pred_label,
         "confidence": confidence,
-        "probs": y.tolist()
+        "probs": y.tolist(),
+        "top_k": top_k,
+        "inference_latency_ms": latency_ms,
+
+
     })
+
+
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
