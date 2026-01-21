@@ -15,5 +15,6 @@ COPY . /app
 EXPOSE 5000
 
 # 用 gunicorn 启动 Flask app（Render 会给 PORT）
-CMD sh -c "gunicorn -b 0.0.0.0:${PORT:-5000} app:app"
+CMD ["sh", "-c", "gunicorn -b 0.0.0.0:${PORT:-5000} app:app"]
+
 
